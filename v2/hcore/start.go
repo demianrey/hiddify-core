@@ -41,11 +41,15 @@ func saveLastStartRequest(in *StartRequest) error {
 			Id:    "lastStartRequestContent",
 			Value: in.ConfigContent,
 		},
+		&hcommon.AppSettings{
+			Id:    "lastStartRequestName",
+			Value: in.ConfigName,
+		},
 	)
 }
 
 func loadLastStartRequestIfNeeded(in *StartRequest) (*StartRequest, error) {
-	if in.ConfigContent != "" || in.ConfigPath != "" {
+	if in != nil && (in.ConfigContent != "" || in.ConfigPath != "") {
 		return in, nil
 	}
 	settings := db.GetTable[hcommon.AppSettings]()
@@ -57,9 +61,15 @@ func loadLastStartRequestIfNeeded(in *StartRequest) (*StartRequest, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	lastName, err := settings.Get("lastStartRequestName")
+	if err != nil {
+		return nil, err
+	}
 	return &StartRequest{
 		ConfigPath:    lastPath.Value.(string),
 		ConfigContent: lastContent.Value.(string),
+		ConfigName:    lastName.Value.(string),
 	}, nil
 }
 
@@ -80,7 +90,7 @@ func StartService(in *StartRequest) (coreResponse *CoreInfoResponse, err error) 
 		return errorWrapper(MessageType_ERROR_BUILDING_CONFIG, err)
 	}
 
-	previousStartRequest = in
+	static.previousStartRequest = in
 	options, err := BuildConfig(in)
 	if err != nil {
 		return errorWrapper(MessageType_ERROR_BUILDING_CONFIG, err)
@@ -99,14 +109,14 @@ func StartService(in *StartRequest) (coreResponse *CoreInfoResponse, err error) 
 	if err != nil {
 		return errorWrapper(MessageType_ERROR_BUILDING_CONFIG, err)
 	}
-	Log(LogLevel_DEBUG, LogType_CORE, string(pout))
+	Log(LogLevel_DEBUG, LogType_CORE, "Current Config is:\n", string(pout))
 
 	bopts := box.Options{
 		Options:           *options,
 		PlatformLogWriter: &LogInterface{},
 	}
-	if globalPlatformInterface != nil {
-		bopts.PlatformInterface = libbox.WrapPlatformInterface(globalPlatformInterface)
+	if static.globalPlatformInterface != nil {
+		bopts.PlatformInterface = libbox.WrapPlatformInterface(static.globalPlatformInterface)
 	}
 	libbox.SetMemoryLimit(!in.DisableMemoryLimit)
 	instance, err := libbox.NewHService(bopts)
@@ -120,7 +130,7 @@ func StartService(in *StartRequest) (coreResponse *CoreInfoResponse, err error) 
 	// }
 	Log(LogLevel_DEBUG, LogType_CORE, "Stating Service with delay ?", in.DelayStart)
 	if in.DelayStart {
-		<-time.After(250 * time.Millisecond)
+		<-time.After(1000 * time.Millisecond)
 	}
 
 	instance.GetInstance().AddPostService("hiddifyMainServiceManager", &hiddifyMainServiceManager{})
